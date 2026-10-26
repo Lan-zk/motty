@@ -67,6 +67,7 @@ type AIPanelMessages struct {
 	HideOutput  string
 	CopyCode    string
 	CopyAnswer  string
+	AnswerText  string // the selectable body of an assistant answer
 
 	ToolListSessions     string
 	ToolTerminalRead     string
@@ -169,6 +170,7 @@ var englishAIPanel = AIPanelMessages{
 	HideOutput:  "Hide output",
 	CopyCode:    "Copy code",
 	CopyAnswer:  "Copy answer",
+	AnswerText:  "Answer text",
 
 	ToolListSessions:     "List sessions",
 	ToolTerminalRead:     "Read terminal",
@@ -271,6 +273,7 @@ var chineseAIPanel = AIPanelMessages{
 	HideOutput:  "隐藏输出",
 	CopyCode:    "复制代码",
 	CopyAnswer:  "复制回答",
+	AnswerText:  "回答内容",
 
 	ToolListSessions:     "列出会话",
 	ToolTerminalRead:     "读取终端",

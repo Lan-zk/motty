@@ -37,25 +37,27 @@ const (
 // heights above it gives.
 type aiRowView struct {
 	// What the layout was built from.
-	valid    bool
-	built    bool // expanded when built
-	kind     aiItemKind
-	status   aiToolStatus
-	width    float32
-	cell     float32
-	title    string
-	textData *byte
-	textLen  int
-	resData  *byte
-	resLen   int
-	argData  *byte
-	argLen   int
+	valid     bool
+	built     bool // expanded when built
+	kind      aiItemKind
+	status    aiToolStatus
+	width     float32
+	cell      float32
+	title     string
+	textData  *byte
+	textLen   int
+	textValue string // the same text, kept to tell an append from a replacement
+	resData   *byte
+	resLen    int
+	argData   *byte
+	argLen    int
 
 	expanded bool // chosen by the user: the reasoning or output is open
 	actions  bool // the last assistant message reserves room for copy and usage
 
-	top    float32 // below the top of the list, set by every paint
-	height float32
+	top      float32 // below the top of the list, set by every paint
+	height   float32
+	textRect ui.Rect // the painted Markdown body, for pointer selection
 	// lines are the wrapped lines of a user message, a reasoning or a notice; of a
 	// tool card the first commandLines are its command, the rest its output.
 	lines        []string
@@ -290,7 +292,7 @@ func (state *State) aiBuild(canvas *ui.Canvas, view *aiRowView, item *aiItem, wi
 	}
 	*view = aiRowView{
 		valid: true, built: view.expanded, kind: item.kind, status: item.status, width: width, cell: cell, title: title,
-		textData: unsafe.StringData(item.text), textLen: len(item.text),
+		textData: unsafe.StringData(item.text), textLen: len(item.text), textValue: item.text,
 		resData: unsafe.StringData(item.result), resLen: len(item.result),
 		argData: unsafe.StringData(item.call.Arguments), argLen: len(item.call.Arguments),
 		expanded: view.expanded, top: view.top, lines: view.lines[:0], doc: view.doc, md: view.md,
@@ -515,6 +517,9 @@ func (state *State) paintAIBody(canvas *ui.Canvas, bounds ui.Rect) {
 	list := body.list.Rect()
 	panel.list = list
 	panel.listing = panel.history
+	if row := panel.textSelect.row; row >= 0 && (row >= len(ai.items) || ai.items[row].kind != aiAssistant) {
+		panel.clearAITextSelection()
+	}
 	switch {
 	case panel.history:
 		state.paintAIHistory(canvas, list)
@@ -748,10 +753,26 @@ func (state *State) paintAIMessages(canvas *ui.Canvas, list ui.Rect) {
 		}
 		lastAnswer := index == len(state.ai.items)-1 && item.kind == aiAssistant
 		if !view.current(item, rowW, cell, title) || view.actions != lastAnswer {
+			if panel.textSelect.row == index &&
+				!(item.kind == aiAssistant && view.kind == aiAssistant && strings.HasPrefix(item.text, view.textValue)) {
+				panel.clearAITextSelection()
+			}
 			state.aiBuild(canvas, view, item, rowW, cell, cellHeight, title)
 			view.actions = lastAnswer
 			if lastAnswer {
 				view.height += aiAnswerAction
+			}
+		}
+		if panel.textSelect.row == index && panel.textSelect.sel.Anchor != panel.textSelect.sel.Focus {
+			// Clamp each end without ordering them: Anchor must stay where the
+			// drag began, or dragging upward would move it on every repaint.
+			length := view.md.TextLen()
+			anchor := min(max(panel.textSelect.sel.Anchor, 0), length)
+			focus := min(max(panel.textSelect.sel.Focus, 0), length)
+			if anchor == focus {
+				panel.clearAITextSelection()
+			} else {
+				panel.textSelect.sel = components.MarkdownSelection{Anchor: anchor, Focus: focus}
 			}
 		}
 		view.top = y
@@ -990,8 +1011,14 @@ func (state *State) paintAIAssistant(canvas *ui.Canvas, bounds, list ui.Rect, vi
 		panel.linkTable[panel.linkRows] = aiLinkRow{base: panel.linkBase, row: index}
 		panel.linkRows++
 	}
+	text := ui.Rect{X: bounds.X, Y: bounds.Y, Width: bounds.Width, Height: min(bounds.Height, view.md.Height())}
+	view.textRect = text
+	if index < aiMaxRowHits {
+		canvas.HitWithOptions(hitAIAnswerText.At(index), text, m.AnswerText, ui.HitOptions{Role: ui.RoleGroup, SkipTab: true})
+	}
 	view.md.Paint(canvas, components.MarkdownPaint{
 		Look: look, X: bounds.X, Y: bounds.Y, Clip: list, Links: hitAILinks, Base: panel.linkBase,
+		Selection: panel.selectionFor(index),
 	})
 	panel.linkBase += view.md.LinkCount()
 	for _, copy := range panel.copies {
