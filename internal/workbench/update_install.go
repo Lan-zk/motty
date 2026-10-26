@@ -59,7 +59,8 @@ var (
 // canInstallUpdate reports whether the offered release can replace this program.
 func (state *State) canInstallUpdate() bool {
 	return state.update.available && state.options.Updater != nil && state.options.Quit != nil &&
-		state.update.release.Asset.Has() && state.options.Updater.Support() == selfupdate.ReasonNone
+		state.update.release.Asset.Has() && state.update.release.Asset.Signed() &&
+		state.options.Updater.Support() == selfupdate.ReasonNone
 }
 
 // whyNoInstall says in words why the offered release has to be downloaded by
@@ -77,9 +78,14 @@ func (state *State) whyNoInstall() string {
 		return m.UpdateWhyNotWritable
 	case selfupdate.ReasonTranslocated:
 		return m.UpdateWhyTranslocated
+	case selfupdate.ReasonSystemInstall:
+		return m.UpdateWhySystemInstall
 	}
 	if !state.update.release.Asset.Has() {
 		return m.UpdateWhyNoPackage
+	}
+	if !state.update.release.Asset.Signed() {
+		return m.UpdateWhyUnsigned
 	}
 	return ""
 }

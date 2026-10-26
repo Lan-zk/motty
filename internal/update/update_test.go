@@ -2,11 +2,13 @@ package update
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -21,6 +23,27 @@ func TestNewer(t *testing.T) {
 	} {
 		if got := Newer(test.current, test.latest); got != test.want {
 			t.Errorf("Newer(%q, %q) = %v", test.current, test.latest, got)
+		}
+	}
+}
+
+func TestStableName(t *testing.T) {
+	// These are the names the mirror publishes after taking the version out of
+	// a release asset, so they have to be the files the release workflow builds.
+	for _, test := range []struct {
+		goos, goarch, want string
+	}{
+		{"darwin", "arm64", "motty-darwin-arm64.zip"},
+		{"darwin", "amd64", "motty-darwin-amd64.zip"},
+		{"linux", "arm64", "motty-linux-arm64.tar.gz"},
+		{"linux", "amd64", "motty-linux-amd64.tar.gz"},
+		{"windows", "amd64", "motty-windows-amd64-setup.exe"},
+		{"windows", "arm64", "motty-windows-arm64-setup.exe"},
+		{"darwin", "386", ""},
+		{"freebsd", "amd64", ""},
+	} {
+		if got := StableName(test.goos, test.goarch); got != test.want {
+			t.Errorf("StableName(%q, %q) = %q, want %q", test.goos, test.goarch, got, test.want)
 		}
 	}
 }
@@ -129,6 +152,30 @@ func TestTheMirrorNamesThePackageOfThePlatformAndWhereToGetIt(t *testing.T) {
 	release, err = LatestMirror(context.Background(), server.Client(), server.URL+"/latest.json", "darwin", "amd64")
 	if err != nil || release.Asset.Has() || release.URL == "" {
 		t.Fatalf("release %+v, err %v", release, err)
+	}
+}
+
+func TestTheMirrorCarriesTheReleaseSignature(t *testing.T) {
+	signature := base64.StdEncoding.EncodeToString([]byte("minisign armour"))
+	files := func(sig string) string {
+		return `"files":[{"name":"motty-darwin-arm64.zip","size":100,"sha256":"` + goodHash + `","signature":"` + sig + `"}]`
+	}
+	server := mirrorServer(t, `{"version":"1.2.3","tag":"v1.2.3","source":"https://github.com/o/r",`+files(signature)+`}`)
+	release, err := LatestMirror(context.Background(), server.Client(), server.URL, "darwin", "arm64")
+	if err != nil || !release.Asset.Signed() || release.Asset.Signature != signature {
+		t.Fatalf("release %+v, err %v", release, err)
+	}
+
+	for name, sig := range map[string]string{
+		"absent":     "",
+		"not base64": "no!",
+		"too long":   strings.Repeat("A", 8192),
+	} {
+		server := mirrorServer(t, `{"version":"1.2.3","tag":"v1.2.3","source":"https://github.com/o/r",`+files(sig)+`}`)
+		release, err := LatestMirror(context.Background(), server.Client(), server.URL, "darwin", "arm64")
+		if err != nil || !release.Asset.Has() || release.Asset.Signed() {
+			t.Errorf("%s: %+v %v", name, release, err)
+		}
 	}
 }
 
