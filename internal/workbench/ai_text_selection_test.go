@@ -423,7 +423,9 @@ func TestAnswerTextDragSelectsAcrossVisualLines(t *testing.T) {
 	}
 
 	canvas, _ := paintAt(state, panelWide)
-	selected := components.MarkdownLookFor(state.Theme()).Selection
+	// The panel overrides the Markdown default for its palette (see
+	// paintAIAssistant), so the highlight is the terminal's recipe.
+	selected := withAlpha(state.pal.text, 0.25)
 	if rects := markdownSelectionRects(canvas, selected); len(rects) == 0 {
 		t.Fatalf("the selection was not highlighted: %+v", canvas.Rectangles())
 	}
@@ -532,6 +534,29 @@ func TestAnswerSelectionSurvivesAStreamedAppend(t *testing.T) {
 	paintAt(state, panelWide)
 	if got, ok := panel.aiTextSelectionText(); !ok || got != "alpha" {
 		t.Fatalf("the appended answer selected %q, %v", got, ok)
+	}
+}
+
+// Streaming can change how a source prefix renders, which shifts every offset
+// after it. The selection has to go rather than point at other characters.
+func TestAnswerSelectionClearsWhenStreamingChangesTheRendering(t *testing.T) {
+	state, _ := panelState(t, nil)
+	state.ai.open = true
+	state.ai.items = []aiItem{{kind: aiAssistant, text: "a `中"}}
+	paintAt(state, panelWide)
+	panel := &state.ai.panel
+	// With the backtick still unclosed it is literal text, so "中" starts at 3.
+	panel.textSelect = aiTextSelection{row: 0, sel: components.MarkdownSelection{Anchor: 3, Focus: 6}}
+	paintAt(state, panelWide)
+	if got, ok := panel.aiTextSelectionText(); !ok || got != "中" {
+		t.Fatalf("the unclosed-backtick answer selected %q, %v", got, ok)
+	}
+	// The closing backtick renders the run as inline code: "a 中", one byte
+	// shorter, so the old offsets no longer name the same characters.
+	state.ai.items[0].text = "a `中`"
+	paintAt(state, panelWide)
+	if got, ok := panel.aiTextSelectionText(); ok {
+		t.Fatalf("a rendering change kept the selection as %q", got)
 	}
 }
 

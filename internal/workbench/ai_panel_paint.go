@@ -37,20 +37,19 @@ const (
 // heights above it gives.
 type aiRowView struct {
 	// What the layout was built from.
-	valid     bool
-	built     bool // expanded when built
-	kind      aiItemKind
-	status    aiToolStatus
-	width     float32
-	cell      float32
-	title     string
-	textData  *byte
-	textLen   int
-	textValue string // the same text, kept to tell an append from a replacement
-	resData   *byte
-	resLen    int
-	argData   *byte
-	argLen    int
+	valid    bool
+	built    bool // expanded when built
+	kind     aiItemKind
+	status   aiToolStatus
+	width    float32
+	cell     float32
+	title    string
+	textData *byte
+	textLen  int
+	resData  *byte
+	resLen   int
+	argData  *byte
+	argLen   int
 
 	expanded bool // chosen by the user: the reasoning or output is open
 	actions  bool // the last assistant message reserves room for copy and usage
@@ -292,7 +291,7 @@ func (state *State) aiBuild(canvas *ui.Canvas, view *aiRowView, item *aiItem, wi
 	}
 	*view = aiRowView{
 		valid: true, built: view.expanded, kind: item.kind, status: item.status, width: width, cell: cell, title: title,
-		textData: unsafe.StringData(item.text), textLen: len(item.text), textValue: item.text,
+		textData: unsafe.StringData(item.text), textLen: len(item.text),
 		resData: unsafe.StringData(item.result), resLen: len(item.result),
 		argData: unsafe.StringData(item.call.Arguments), argLen: len(item.call.Arguments),
 		expanded: view.expanded, top: view.top, lines: view.lines[:0], doc: view.doc, md: view.md,
@@ -753,14 +752,24 @@ func (state *State) paintAIMessages(canvas *ui.Canvas, list ui.Rect) {
 		}
 		lastAnswer := index == len(state.ai.items)-1 && item.kind == aiAssistant
 		if !view.current(item, rowW, cell, title) || view.actions != lastAnswer {
-			if panel.textSelect.row == index &&
-				!(item.kind == aiAssistant && view.kind == aiAssistant && strings.HasPrefix(item.text, view.textValue)) {
-				panel.clearAITextSelection()
+			// A selection indexes the rendered text, so it survives a rebuild only
+			// when the new rendering still begins with the old one. Comparing the
+			// Markdown sources instead would keep it across a structure change (an
+			// unclosed backtick closing, say) and point it at other characters.
+			// The old text is read only while this row holds the selection.
+			keepSelection := panel.textSelect.row == index
+			var rendered string
+			if keepSelection {
+				rendered = view.md.SelectedText(components.MarkdownSelection{Focus: view.md.TextLen()})
 			}
 			state.aiBuild(canvas, view, item, rowW, cell, cellHeight, title)
 			view.actions = lastAnswer
 			if lastAnswer {
 				view.height += aiAnswerAction
+			}
+			if keepSelection && (item.kind != aiAssistant ||
+				!strings.HasPrefix(view.md.SelectedText(components.MarkdownSelection{Focus: view.md.TextLen()}), rendered)) {
+				panel.clearAITextSelection()
 			}
 		}
 		if panel.textSelect.row == index && panel.textSelect.sel.Anchor != panel.textSelect.sel.Focus {
@@ -1001,6 +1010,11 @@ func (state *State) paintAIAssistant(canvas *ui.Canvas, bounds, list ui.Rect, vi
 	blue := pal.ansi[4] // the accent is nearly white; a link has to stand out from the text
 	look.Text, look.Muted, look.Link = pal.text, pal.muted, ui.RGB(blue[0], blue[1], blue[2])
 	look.CodeFill, look.InlineCodeFill, look.Line, look.Radius = pal.terminal, pal.surfaceSoft, pal.line, radius.control
+	// MarkdownLookFor tints a selection with theme.Primary at 50%, and this
+	// palette's accent is its text colour: on the dark palette that is a grey
+	// band the selected text barely stands out from. Use the terminal's
+	// selection recipe instead, so both places look the same.
+	look.Selection = withAlpha(pal.text, 0.25)
 	ansi := func(index int) ui.Color { return ui.RGB(pal.ansi[index][0], pal.ansi[index][1], pal.ansi[index][2]) }
 	look.Code = [components.MarkdownCodeClasses]ui.Color{
 		components.CodeComment: pal.faint, components.CodeString: ansi(2), components.CodeNumber: ansi(3),
