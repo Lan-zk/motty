@@ -441,14 +441,6 @@ func aiImportUniqueName(providers []store.Provider, desired string) string {
 	}
 }
 
-func truncateRunes(value string, limit int) string {
-	runes := []rune(value)
-	if len(runes) <= limit {
-		return value
-	}
-	return string(runes[:limit])
-}
-
 // aiImportBase normalizes an endpoint for matching: scheme and host are
 // case-insensitive and a trailing slash is noise. The path is left alone
 // because relays differ there and equality is what deduplication needs.
