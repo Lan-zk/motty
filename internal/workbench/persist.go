@@ -211,6 +211,9 @@ func (report loadReport) describe() string {
 	case loadUnreadable:
 		return "unreadable, set aside"
 	}
+	if report.workspaceErr != nil {
+		return "read, development workspace reset"
+	}
 	return "read"
 }
 
