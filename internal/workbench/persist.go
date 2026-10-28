@@ -198,6 +198,9 @@ type loadReport struct {
 	// found is the format versions of a file that is too new, and supported the
 	// ones this build reads, as "state.catalog.shortcuts".
 	found, supported string
+	// workspaceErr is a damaged development workspace. It is local to that
+	// record, so the shared database and release workspace remain usable.
+	workspaceErr error
 }
 
 // describe says how the file was read, for the diagnostics report.
