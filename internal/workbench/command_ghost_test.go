@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/vivaui/viva/ui"
+	"motty/internal/cmdhistory"
 )
 
 // ghostWorld is a history world whose host already has some commands.
@@ -19,6 +20,14 @@ func ghostWorld(t *testing.T, commands ...string) *historyWorld {
 			t.Fatal(err)
 		}
 	}
+	entries, err := store.List(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Seed the fixture's prepared cache; real windows fill it off the UI thread.
+	h.state.forgetCompletionHistory()
+	h.state.history.ghost = map[string][]cmdhistory.Entry{key: entries}
+
 	return h
 }
 
