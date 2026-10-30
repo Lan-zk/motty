@@ -133,6 +133,8 @@ type Messages struct {
 	SettingsLocalShell                     string
 	SettingsLocalShellDescription          string
 	SettingsLocalShellEmpty                string
+	LocalShellDefault                      string
+	LocalShellChoose                       string
 	SettingsTerminalFontSize               string
 	SettingsTerminalFontSizeDescription    string
 	SettingsTerminalFontFamily             string
@@ -203,6 +205,7 @@ type Messages struct {
 	MenuCopy                               string
 	MenuPaste                              string
 	MenuSelectAll                          string
+	MenuClearScreen                        string
 	MenuClearScrollback                    string
 	MenuResourceMonitor                    string
 	LocalTerminal                          string
@@ -234,6 +237,7 @@ type Messages struct {
 	ShortcutCloseTab                     string
 	ShortcutNextTab                      string
 	ShortcutPreviousTab                  string
+	ShortcutClearScreen                  string
 	RecordingStart                       string
 	RecordingStop                        string
 	RecordingExport                      string

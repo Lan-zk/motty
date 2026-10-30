@@ -58,9 +58,17 @@ func (group *Group) sessionCount() int {
 func (group *Group) join(state *State) {
 	group.mu.Lock()
 	group.members = append(group.members, state)
-	state.history.clear = group.historyClears[state.historyPath()]
-	job := state.history.clear
+	job := group.historyClears[state.historyPath()]
 	group.mu.Unlock()
+	if job != nil {
+		// Only a clear still running concerns a window that opens now.
+		select {
+		case <-job.done:
+			job = nil
+		default:
+		}
+	}
+	state.history.clear = job
 	if job != nil {
 		job.subscribe(state.options.Invalidate)
 	}

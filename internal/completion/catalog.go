@@ -422,6 +422,16 @@ func Decode(data []byte) (*Catalog, error) {
 			if fields[3] != "" {
 				n.Aliases = strings.Split(fields[3], ",")
 			}
+			// The digest only detects damage; a node name is typed into the
+			// shell, so it must be as plain as the importer insists.
+			if !validTokenPart(n.Token) {
+				return nil, fmt.Errorf("completion: command name on line %d is not a plain token", number+1)
+			}
+			for _, alias := range n.Aliases {
+				if !validTokenPart(alias) {
+					return nil, fmt.Errorf("completion: command alias on line %d is not a plain token", number+1)
+				}
+			}
 			if depth > len(stack) {
 				return nil, fmt.Errorf("completion: inconsistent node depth on line %d", number+1)
 			}

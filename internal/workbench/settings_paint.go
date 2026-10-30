@@ -18,13 +18,6 @@ const (
 	settingsDescLines = 2
 )
 
-var hitSettingsInlineSuggestToggle = tree.ID(settingsHits, "settings-inline-suggest")
-
-func (state *State) toggleInlineSuggestions() {
-	state.history.inlineOff = !state.history.inlineOff
-	state.save()
-}
-
 // settingsControlKind is how a recorded control is painted.
 type settingsControlKind uint8
 
@@ -300,8 +293,8 @@ func (state *State) paintTerminalSettings(page *settingsPage) {
 			status, _ := state.completionCatalogStatus()
 			page.actionRow(messages.Completion.CatalogRow, status, false,
 				components.ButtonAction{ID: hitCompletionUpdate, Label: messages.Completion.Check, Variant: components.ButtonOutline})
-			page.toggleRow(messages.History.SuggestRow, messages.History.SuggestDescription, !state.history.suggestOff, hitSettingsSuggestToggle)
-			page.toggleRow(messages.Completion.InlineRow, messages.Completion.InlineDescription, !state.history.inlineOff, hitSettingsInlineSuggestToggle)
+			completionOptions := state.settingsCompletionOptions()
+			page.row(messages.History.SuggestRow, messages.History.SuggestDescription, completionOptions[:], state.selectedCompletionOption())
 			page.toggleRow(messages.History.SettingsRow, messages.History.SettingsDescription, state.history.on, hitSettingsHistoryToggle)
 			page.actionRow(messages.History.ClearRow, messages.History.ClearDescription, false,
 				components.ButtonAction{ID: hitSettingsHistoryClear, Label: messages.History.Clear, Variant: components.ButtonOutline})

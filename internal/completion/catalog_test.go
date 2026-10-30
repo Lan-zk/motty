@@ -2,6 +2,10 @@ package completion
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -68,5 +72,23 @@ func TestNewCatalogRejectsDuplicates(t *testing.T) {
 	}
 	if _, err := NewCatalog("s", "r", "c", "MIT", nil); err == nil {
 		t.Fatal("empty catalog was accepted")
+	}
+}
+
+func TestDecodeRejectsCommandNamesThatAreNotPlainTokens(t *testing.T) {
+	for name, body := range map[string]string{
+		"metacharacter": "N\t0\tgit\t\t0\tx\nN\t1\tpush;rm\t\t0\ty\n",
+		"control byte":  "N\t0\tgit\t\t0\tx\nN\t1\tpush\x04\t\t0\ty\n",
+		"alias":         "N\t0\tgit\t$(id)\t0\tx\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			sum := sha256.Sum256([]byte(body))
+			nodes := strings.Count(body, "N\t")
+			data := fmt.Sprintf("motty-completion\t1\nsource\ts\nrelease\tv1.0.0\ncommit\tc\nlicense\tMIT\nroots\t1\nnodes\t%d\nflags\t0\nvalues\t0\ndigest\t%s\n\n%s",
+				nodes, hex.EncodeToString(sum[:]), body)
+			if _, err := Decode([]byte(data)); err == nil {
+				t.Fatal("a catalog with an unsafe command name was accepted")
+			}
+		})
 	}
 }

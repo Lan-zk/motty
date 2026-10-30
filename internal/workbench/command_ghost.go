@@ -60,6 +60,11 @@ func (state *State) commandGhost(session *Session) (string, bool) {
 	if h.suggestOff || h.inlineOff || session == nil || session.term == nil || session.term.shell == nil {
 		return "", false
 	}
+	// Accepting is checked against one terminal's prompt and never typed into
+	// several at once, so a suggestion that could not be accepted is not shown.
+	if state.broadcast != 0 {
+		return "", false
+	}
 	t := session.term
 	if t.suggestionPending != nil || t.preedit.Composing || !t.screen.Cursor().Visible {
 		return "", false

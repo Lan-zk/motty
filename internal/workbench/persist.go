@@ -200,6 +200,8 @@ type savedSession struct {
 	// Local marks a shell on this computer: it has no address to dial.
 	Local          bool   `json:"local,omitempty"`
 	LocalDirectory string `json:"local_directory,omitempty"`
+	// LocalShell is the shell this local tab was opened with; empty follows the default.
+	LocalShell string `json:"local_shell,omitempty"`
 	savedTransport
 }
 
@@ -500,7 +502,7 @@ func (state *State) snapshot() savedState {
 			continue
 		}
 		if session.isLocal() {
-			saved.Sessions = append(saved.Sessions, savedSession{Label: session.Title, Local: true, LocalDirectory: session.localDirectory})
+			saved.Sessions = append(saved.Sessions, savedSession{Label: session.Title, Local: true, LocalDirectory: session.localDirectory, LocalShell: session.host.localShell})
 			if session.ID == state.activeSessionID {
 				saved.ActiveSession = len(saved.Sessions)
 			}
@@ -730,8 +732,14 @@ func (state *State) workspaceName() string {
 	}
 }
 
+// restoreShortcuts applies the bindings the file holds, then fills what is
+// still free with the defaults. The file wins on purpose: a chord saved for one
+// action is not taken by the default of an action a later build added. Such an
+// action stays unbound, reading "—" in the settings until it is given a chord,
+// rather than quietly moving a shortcut the user chose.
 func restoreShortcuts(saved []savedShortcut) shortcutMap {
-	shortcuts := defaultShortcuts()
+	defaults := defaultShortcuts()
+	var shortcuts shortcutMap
 	for _, entry := range saved {
 		action := shortcutActionFromString(entry.Action)
 		chord, ok := chordFromSaved(ui.Modifiers(entry.Modifiers), entry.Key)
@@ -739,6 +747,12 @@ func restoreShortcuts(saved []savedShortcut) shortcutMap {
 			continue
 		}
 		shortcuts.bind(action, chord)
+	}
+	for action := shortcutAction(1); action < shortcutActionCount; action++ {
+		if shortcuts.chords[action].valid() {
+			continue
+		}
+		shortcuts.bind(action, defaults.chords[action])
 	}
 	shortcuts.refreshLabels()
 	return shortcuts
@@ -826,7 +840,11 @@ func (state *State) restoreSessions(entries []savedSession, active int) []uint32
 
 func (state *State) restoreSessionHost(entry savedSession) (Host, bool) {
 	if entry.Local {
-		return localHost(state.messages.LocalTerminalTitle), true
+		host := localHost(state.messages.LocalTerminalTitle)
+		if validLocalShell(entry.LocalShell) {
+			host.localShell = entry.LocalShell
+		}
+		return host, true
 	}
 	if entry.Address == "" {
 		return Host{}, false

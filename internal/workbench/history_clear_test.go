@@ -101,3 +101,34 @@ func TestClearJobNotifiesAWindowJoiningAfterCompletion(t *testing.T) {
 		t.Fatal("completed job did not wake a late subscriber")
 	}
 }
+
+func TestWindowOpenedAfterAFinishedClearIsNotPausedOrNotified(t *testing.T) {
+	a := newCompletionWorld(t)
+	path := filepath.Join(t.TempDir(), "shared.db")
+	group := NewGroup()
+	a.state.options.HistoryPath = path
+	a.state.options.Group = group
+	a.state.history.on = true
+	group.join(a.state)
+	a.state.startHistoryClear(a.state.historyStore())
+	select {
+	case <-a.state.history.clear.done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("clear timed out")
+	}
+	a.state.adoptHistoryClear()
+
+	b := newCompletionWorld(t)
+	b.state.options.HistoryPath = path
+	b.state.options.Group = group
+	b.state.history.on = true
+	group.join(b.state)
+	if b.state.historyClearing() {
+		t.Fatal("a window opened after the clear finished is paused")
+	}
+	b.state.status = ""
+	b.state.adoptHistoryClear()
+	if b.state.status != "" {
+		t.Fatalf("a window that did not clear announced %q", b.state.status)
+	}
+}

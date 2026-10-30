@@ -27,8 +27,8 @@ func TestInlineSettingDisablesGhostButKeepsManualCompletion(t *testing.T) {
 	if !w.state.completion.list.active || len(w.state.completion.list.candidates) == 0 {
 		t.Fatal("disabling inline suggestions also disabled the manual completion list")
 	}
-	// The command completion switch still controls both modes.
-	w.state.toggleSuggestions()
+	// Off turns off both modes.
+	w.state.setCompletionMode(completionOff)
 	if w.state.completion.list.active {
 		t.Fatal("turning command completion off left the list open")
 	}
@@ -47,17 +47,14 @@ func TestCompletionControlsAndKeysHaveSeparateSettingsHomes(t *testing.T) {
 			state.selectSettingsCategory(settingsTerminal)
 			var canvas ui.Canvas
 			state.Paint(&canvas, ui.Size{Width: 1400, Height: 2400})
-			if !canvasHasText(&canvas, state.messages.Completion.InlineRow) {
-				t.Fatal("terminal settings have no separate inline suggestion switch")
-			}
-			switchOn := false
-			for _, hit := range canvas.Hits() {
-				if hit.ID == hitSettingsInlineSuggestToggle && hit.Role == ui.RoleSwitch && hit.Checked {
-					switchOn = true
+			for _, option := range state.settingsCompletionOptions() {
+				hit, ok := hitByID(&canvas, option.ID)
+				if !ok || !canvasHasText(&canvas, option.Label) {
+					t.Fatalf("completion mode %q is not offered", option.Label)
 				}
-			}
-			if !switchOn {
-				t.Fatal("the inline suggestion switch is absent or disabled by default")
+				if want := option.ID == hitSettingsCompletionBoth; hit.Selected != want {
+					t.Errorf("mode %q selected=%v, want %v by default", option.Label, hit.Selected, want)
+				}
 			}
 			state.selectSettingsCategory(settingsShortcuts)
 			canvas.Reset()
@@ -82,21 +79,66 @@ func TestCompletionControlsAndKeysHaveSeparateSettingsHomes(t *testing.T) {
 	}
 }
 
-func TestInlineSuggestionSwitchPersistsIndependently(t *testing.T) {
+func TestCompletionModeIsChosenAndPersistsInSettings(t *testing.T) {
 	options := testOptions(t)
 	state := newTestState(t, options)
-	state.Click(hitSettingsInlineSuggestToggle)
-	if !state.history.inlineOff || state.history.suggestOff {
-		t.Fatal("the inline switch did not change independently of command completion")
+	state.Click(hitSettings)
+	state.selectSettingsCategory(settingsTerminal)
+	cases := []struct {
+		id                    ui.ID
+		mode                  completionMode
+		suggestOff, inlineOff bool
+	}{
+		{hitSettingsCompletionList, completionList, false, true},
+		{hitSettingsCompletionOff, completionOff, true, false},
+		{hitSettingsCompletionBoth, completionBoth, false, false},
 	}
-	again := newTestState(t, options)
-	if !again.history.inlineOff || again.history.suggestOff {
-		t.Fatal("the independent inline preference did not survive restart")
+	for _, c := range cases {
+		state.Click(c.id)
+		if state.completionMode() != c.mode || state.history.suggestOff != c.suggestOff || state.history.inlineOff != c.inlineOff {
+			t.Fatalf("mode after %v = %v (suggestOff=%v inlineOff=%v)", c.id, state.completionMode(), state.history.suggestOff, state.history.inlineOff)
+		}
+		again := newTestState(t, options)
+		if again.completionMode() != c.mode {
+			t.Fatalf("mode %v did not survive a restart: %v", c.mode, again.completionMode())
+		}
 	}
-	again.Click(hitSettingsInlineSuggestToggle)
-	if again.history.inlineOff {
-		t.Fatal("the inline switch cannot be re-enabled")
+}
+
+func TestEarlierCompletionPreferencesKeepTheirMeaning(t *testing.T) {
+	for _, c := range []struct {
+		record string
+		want   completionMode
+	}{
+		{`{}`, completionBoth},
+		{`{"command_suggest_off":true}`, completionOff},
+		{`{"command_inline_suggest_off":true}`, completionList},
+	} {
+		var saved savedState
+		if err := json.Unmarshal([]byte(c.record), &saved); err != nil {
+			t.Fatal(err)
+		}
+		state := newTestState(t, testOptions(t))
+		state.restoreShared(saved)
+		if state.completionMode() != c.want {
+			t.Errorf("%s reads as mode %v, want %v", c.record, state.completionMode(), c.want)
+		}
 	}
+}
+
+func TestCompletionCatalogStaysUnloadedWhileCompletionIsOff(t *testing.T) {
+	state := newTestState(t, testOptions(t))
+	state.setCompletionMode(completionOff)
+	state.completion = completionUI{}
+	state.Wake()
+	if state.completion.catalogLoading || state.completion.store != nil || state.completion.catalog != nil {
+		t.Fatal("the catalog was decoded although completion is off")
+	}
+	state.setCompletionMode(completionList)
+	if !state.completion.catalogLoading {
+		t.Fatal("turning completion on did not load the catalog")
+	}
+	state.closeCompletionWorkers()
 }
 
 func TestInlinePreferenceUsesAnIndependentSharedRecord(t *testing.T) {

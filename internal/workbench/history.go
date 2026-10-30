@@ -37,7 +37,6 @@ var (
 	hitHistoryScopeAll       = tree.ID(historyHits, "history-scope-all")
 	hitHistoryItems          = tree.Sub(historyHits, tree.Name("history-items"))
 	hitSettingsHistoryToggle = tree.ID(historyHits, "settings-history")
-	hitSettingsSuggestToggle = tree.ID(historyHits, "settings-history-suggest")
 	hitSettingsHistoryClear  = tree.ID(historyHits, "settings-history-clear")
 )
 
@@ -57,10 +56,11 @@ type historyUI struct {
 	clear     *historyClearJob
 	lastClear *historyClearJob
 
-	// suggestOff turns off the inline suggestions the history offers while a
-	// command is typed; they are on by default but need the history itself.
+	// suggestOff and inlineOff together are the completion mode (see
+	// completionMode): suggestOff turns off the list and the inline suggestion,
+	// inlineOff keeps the list and hides the inline suggestion.
 	suggestOff bool
-	inlineOff  bool // hides ghost text without disabling the manual completion list
+	inlineOff  bool
 	// ghost is the candidates of each host for those suggestions, newest first.
 	ghost map[string][]cmdhistory.Entry
 
@@ -150,7 +150,9 @@ func (state *State) historyStore() *cmdhistory.Queue {
 // Wake, never from Paint.
 func (state *State) adoptHistoryClear() {
 	h := &state.history
-	job := state.historyClearJob()
+	// Only a clear this window took part in is reported here; the group keeps
+	// finished jobs, which a window opened later must not announce again.
+	job := h.clear
 	if job == nil || job == h.lastClear {
 		return
 	}
@@ -214,15 +216,6 @@ func (state *State) toggleHistory() {
 		// Turning learning off stops reads as well as writes: drop what the list
 		// would have shown and anything still loading.
 		state.forgetCompletionHistory()
-		state.closeCompletionList()
-	}
-	state.save()
-}
-
-// toggleSuggestions flips the inline suggestions switch.
-func (state *State) toggleSuggestions() {
-	state.history.suggestOff = !state.history.suggestOff
-	if state.history.suggestOff {
 		state.closeCompletionList()
 	}
 	state.save()

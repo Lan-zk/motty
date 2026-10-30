@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -201,11 +202,11 @@ func resolveTag(ctx context.Context, client *http.Client, tag string) (Release, 
 				URL  string `json:"url"`
 			} `json:"object"`
 		}
-		url := "https://api.github.com/repos/" + RepositoryOwner + "/" + RepositoryName + "/git/ref/tags/" + tag
+		endpoint := "https://api.github.com/repos/" + RepositoryOwner + "/" + RepositoryName + "/git/ref/tags/" + url.PathEscape(tag)
 		if depth > 0 {
-			url = "https://api.github.com/repos/" + RepositoryOwner + "/" + RepositoryName + "/git/tags/" + release.Commit
+			endpoint = "https://api.github.com/repos/" + RepositoryOwner + "/" + RepositoryName + "/git/tags/" + release.Commit
 		}
-		if err := getJSON(ctx, client, url, &ref); err != nil {
+		if err := getJSON(ctx, client, endpoint, &ref); err != nil {
 			return Release{}, err
 		}
 		if ref.Object.SHA == "" {

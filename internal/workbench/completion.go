@@ -32,7 +32,75 @@ var (
 	hitCompletionDismiss = tree.ID(completionHits, "completion-dismiss")
 	hitCompletionList    = tree.Sub(completionHits, tree.Name("completion-list"))
 	hitCompletionUpdate  = tree.ID(completionHits, "completion-update")
+
+	hitSettingsCompletionOff  = tree.ID(settingsHits, "settings-completion-off")
+	hitSettingsCompletionList = tree.ID(settingsHits, "settings-completion-list")
+	hitSettingsCompletionBoth = tree.ID(settingsHits, "settings-completion-both")
 )
+
+// completionMode is how much of command completion is on. It is stored in two
+// existing preferences, so a configuration written before the modes existed
+// reads back unchanged: suggestOff is Off, and inlineOff, with completion on,
+// is List.
+type completionMode uint8
+
+const (
+	completionOff  completionMode = iota // no list, no inline suggestion
+	completionList                       // only the list the user asks for
+	completionBoth                       // the list and the gray inline suggestion
+)
+
+func (state *State) completionMode() completionMode {
+	switch {
+	case state.history.suggestOff:
+		return completionOff
+	case state.history.inlineOff:
+		return completionList
+	default:
+		return completionBoth
+	}
+}
+
+// setCompletionMode reports whether the mode changed. Turning completion on
+// starts the work it needs here, in answer to the user, because nothing is
+// loaded while it is off.
+func (state *State) setCompletionMode(mode completionMode) bool {
+	if state.completionMode() == mode {
+		return false
+	}
+	state.history.suggestOff = mode == completionOff
+	state.history.inlineOff = mode == completionList
+	if mode == completionOff {
+		state.closeCompletionList()
+		state.forgetCompletionHistory()
+		return true
+	}
+	state.loadCompletionCatalog()
+	if session, ok := state.sessionByIDPointer(state.activeSessionID); ok && state.history.on {
+		state.completionHistory(session)
+	}
+	return true
+}
+
+func (state *State) settingsCompletionOptions() [3]components.SegmentOption {
+	m := state.messages.Completion
+	return [...]components.SegmentOption{
+		{ID: hitSettingsCompletionOff, Label: m.ModeOff},
+		{ID: hitSettingsCompletionList, Label: m.ModeList},
+		{ID: hitSettingsCompletionBoth, Label: m.ModeBoth},
+	}
+}
+
+func (state *State) selectedCompletionOption() ui.ID {
+	switch state.completionMode() {
+	case completionOff:
+		return hitSettingsCompletionOff
+	case completionList:
+		return hitSettingsCompletionList
+	default:
+		return hitSettingsCompletionBoth
+	}
+}
 
 // completionScope names the popover's focus scope; it is separate from the
 // terminal's so the grid keeps the keyboard and the IME.
@@ -65,11 +133,14 @@ type completionUI struct {
 
 	// updating is a user-requested download. Its result arrives through
 	// updateReady; checked is when the feed was last asked.
-	updating     bool
-	updateErr    error
-	checked      time.Time
-	updateReady  chan completionUpdateResult
-	cancelUpdate context.CancelFunc
+	updating bool
+	// updatePending is a check asked for before the catalog it is compared
+	// against had loaded; it starts when the load finishes.
+	updatePending bool
+	updateErr     error
+	checked       time.Time
+	updateReady   chan completionUpdateResult
+	cancelUpdate  context.CancelFunc
 
 	// History reads fill history.ghost, the single cache used by both modes.
 	// The catalog never waits for these background requests.
@@ -158,6 +229,13 @@ func (state *State) completionStore() *completion.CatalogStore {
 // adoptCompletion runs only on the UI thread. Every window reads the same
 // per-directory store; a late load result cannot publish over a newer install.
 func (state *State) adoptCompletion() {
+	// With completion off nothing needs the catalog, so it is not decoded: it
+	// costs about ten megabytes of heap per process.
+	if state.history.suggestOff && !state.completion.updatePending {
+		state.adoptCompletionUpdate()
+		state.adoptCompletionHistory()
+		return
+	}
 	state.loadCompletionCatalog()
 	state.adoptCompletionCatalog()
 	state.adoptCompletionUpdate()
@@ -177,6 +255,9 @@ func (state *State) adoptCompletionCatalog() {
 			c.catalogReady = nil
 			c.catalogLoading = false
 			c.catalogErr, c.catalogNote = load.err, load.note
+			if load.err != nil {
+				c.updatePending = false
+			}
 		default:
 		}
 	}
@@ -187,6 +268,10 @@ func (state *State) adoptCompletionCatalog() {
 	if catalog != nil && generation != c.catalogGeneration {
 		c.catalog, c.catalogGeneration = catalog, generation
 		state.closeCompletionList()
+	}
+	if c.catalog != nil && c.updatePending && !c.updating {
+		c.updatePending = false
+		state.updateCompletions()
 	}
 }
 
@@ -241,7 +326,7 @@ func (state *State) adoptCompletionHistory() {
 // completionHistory is shared by the list and ghost text. Reads are requested
 // by Wake/input handlers, while painting reads this cache without doing I/O.
 func (state *State) completionHistory(session *Session) []cmdhistory.Entry {
-	if !state.history.on || state.historyClearing() || !state.historyAvailable(session) || session.host.NoHistory {
+	if state.history.suggestOff || !state.history.on || state.historyClearing() || !state.historyAvailable(session) || session.host.NoHistory {
 		return nil
 	}
 	key := historyKey(session)
@@ -297,6 +382,7 @@ func (state *State) updateCompletions() {
 		return
 	}
 	if c.catalog == nil || c.store == nil {
+		c.updatePending = true
 		state.loadCompletionCatalog()
 		return
 	}
@@ -341,6 +427,9 @@ func (state *State) completionCatalogStatus() (string, error) {
 	if c.catalog == nil {
 		if c.catalogErr != nil {
 			return fmt.Sprintf(m.CheckFailedFmt, c.catalogErr), c.catalogErr
+		}
+		if state.history.suggestOff && !c.updatePending {
+			return m.CatalogOff, nil
 		}
 		return m.CatalogLoading, nil
 	}
@@ -413,7 +502,7 @@ func (state *State) completionSession() *Session {
 // shortcut, the command palette entry, and the mouse handler.
 func (state *State) openCompletions() {
 	if state.history.suggestOff {
-		return // the one switch governs the list and the ghost text
+		return // off means neither the list nor the ghost text
 	}
 	session, ok := state.sessionByIDPointer(state.activeSessionID)
 	if !ok || !state.completionEligible(session) {

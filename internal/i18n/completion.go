@@ -5,8 +5,9 @@ package i18n
 type CompletionMessages struct {
 	Title                 string
 	Open                  string
-	InlineRow             string
-	InlineDescription     string
+	ModeOff               string
+	ModeList              string
+	ModeBoth              string
 	KeysGroup             string
 	KeysAccept            string
 	KeysAcceptWord        string
@@ -20,6 +21,7 @@ type CompletionMessages struct {
 	CatalogRow            string
 	CatalogDescriptionFmt string
 	CatalogLoading        string
+	CatalogOff            string
 	Check                 string
 	Updating              string
 	UpToDate              string
