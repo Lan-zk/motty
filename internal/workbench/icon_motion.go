@@ -285,8 +285,9 @@ var (
 	}
 
 	// iconMotionType presses a keyboard's keys from the left edge to the right,
-	// one after another. The dots are contours 0 to 7 and the outline is 8, so the
-	// order here is the visual order of the keys: by x, left to right.
+	// one after another. The dots are contours 0 to 7 and the outline is 8; the
+	// order is by the left edge of each shape, so the wide space bar, contour 6,
+	// presses second rather than last.
 	iconMotionType = iconMotion{
 		duration: 1000 * time.Millisecond,
 		parts: []iconPartMotion{

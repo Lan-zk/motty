@@ -9,8 +9,9 @@ import (
 )
 
 // iconStill reports whether a transform paints the icon it would paint without
-// one: no turn, no offset, the identity scale — which a motion's first keyframe
-// spells either as zero or as one — and no contour moving on its own.
+// one: no turn, no offset, the identity scale and reveal — which a motion's first
+// keyframe spells either as zero or as one — and no contour moving or stretching
+// on its own.
 func iconStill(transform ui.IconTransform) bool {
 	if transform.Rotate != 0 || transform.Offset != (ui.Point{}) {
 		return false
@@ -18,11 +19,17 @@ func iconStill(transform ui.IconTransform) bool {
 	if transform.Scale != 0 && transform.Scale != 1 {
 		return false
 	}
+	if transform.Reveal != 0 && transform.Reveal != 1 {
+		return false
+	}
 	for _, part := range transform.Parts {
 		if part.Rotate != 0 || part.Offset != (ui.Point{}) {
 			return false
 		}
 		if part.Scale != 0 && part.Scale != 1 {
+			return false
+		}
+		if part.ScaleX != 0 && part.ScaleX != 1 {
 			return false
 		}
 	}
@@ -181,20 +188,25 @@ func TestIconMotionTrackHoldsBetweenKeyframes(t *testing.T) {
 	}
 }
 
-func TestEveryNavigationRowPlaysAMotion(t *testing.T) {
-	rows := []struct {
-		name string
-		icon uint8
-	}{
-		{"hosts", iconHosts}, {"dashboard", iconActivity}, {"keychain", iconKey},
-		{"proxies", iconGlobe}, {"port forwarding", iconForward},
-		{"known hosts", iconKnown}, {"snippets", iconNote},
-		{"local terminal", iconTerminal}, {"settings", iconSettings},
-	}
-	for _, row := range rows {
-		if _, ok := iconMotionFor(row.icon); !ok {
-			t.Errorf("the %s icon has no motion", row.name)
+// Every row the sidebar paints plays a motion. The rows are read from a real
+// paint rather than copied here, so a row added to the sidebar fails this test
+// until it is taught to move.
+func TestEveryPaintedNavigationRowPlaysAMotion(t *testing.T) {
+	state := newTestState(t, freshOptions(t))
+	var canvas ui.Canvas
+	state.Paint(&canvas, ui.Size{Width: 1400, Height: 900})
+	rows := 0
+	for _, hit := range canvas.Hits() {
+		if hit.Role != ui.RoleMenuItem || hit.Bounds.X >= navigationWidth {
+			continue
 		}
+		rows++
+		if !playsIconMotion(hit.ID) {
+			t.Errorf("the sidebar row %q (%v) does not play a motion", hit.Label, hit.ID)
+		}
+	}
+	if rows < 9 {
+		t.Fatalf("the painted sidebar has %d rows, want the nine page rows", rows)
 	}
 	for entry := settingsGeneral; entry < settingsCategoryCount; entry++ {
 		if _, ok := iconMotionFor(entry.icon()); !ok {
